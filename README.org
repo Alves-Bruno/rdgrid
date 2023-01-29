@@ -1,0 +1,12 @@
+* Rdgrid: Dynamic grid generator for triangle meshes. 
+
+You can specify the max number of triangles per grid rectangle and rdgrid will create the dynamic grid. We use quad-trees to the the grid refinement. The image bellow is a simple example of a dynamic grid with a max number of triangles of 2.
+
+#+CAPTION: Dynamic grid example
+[[./grid.png]]
+
+** External libraries 
+
+[[https://uscilab.github.io/cereal/][Cereal lib for serialization]]
+
+[[https://www.rcpp.org/][Rcpp: R and C++ integration]]
