@@ -4,17 +4,19 @@
 #include<sstream> // for ostringstream
 #include<string>
 #include<algorithm>
+#include <cmath>
 #include<cereal/archives/binary.hpp>
 #include <cereal/types/vector.hpp>
 
 
-//#include <Rcpp.h>
-//using namespace Rcpp;
+#include <Rcpp.h>
+using namespace Rcpp;
 
 unsigned int limit = 1;
 using namespace std;
 
-struct point{
+class point{
+public:
   double x, y;
 
   template<class Archive>
@@ -22,9 +24,19 @@ struct point{
   {
     archive(x, y); 
   }
+
+  point(){
+    x=0.0; y=0.0;
+  }
+
+  inline bool operator==(const point& p)
+  {
+    return ((this->x == p.x) && (this->y == p.y));
+  }
 };
 
-struct quad {
+class quad {
+public: 
   quad **children;
   point a, b;
   vector<struct point> points;
@@ -34,14 +46,30 @@ struct quad {
   template<class Archive>
   void serialize(Archive & archive)
   {
-    archive(a, b, CEREAL_NVP(points), has_children); 
+    archive(a, b, CEREAL_NVP(points), has_children, N); 
+  }
+
+  quad(){
+    children = nullptr;
+    N = -1;
+    has_children = false;
   }
 
 };
 
 struct grid{
   quad *q0;
-  vector<quad*> result;
+  vector<point> txrx;
+
+  template<class Archive>
+  void serialize(Archive & archive)
+  {
+    archive(CEREAL_NVP(txrx)); 
+  }
+
+  grid(){
+    q0 = nullptr;
+  }
 };
 
 std::string point_str(point *p){
@@ -70,7 +98,7 @@ void quad_print(quad *q){
   //cout << "Quad: " << endl;
   //cout << "\t" << point_str(&q->a) << " -> " << point_str(&q->b) << endl;
   cout << point_str(&q->a) << ", " << point_str(&q->b);
-  cout << ", " << q->points.size() << ",  " << q->has_children << endl;
+  cout << ", " << q->N << ", " << q->points.size() << ",  " << q->has_children << endl;
    //cout << q->npoints << endl;
   // if(q->points != nullptr){
   //   for(auto i : *(q->points)){
@@ -90,15 +118,17 @@ void print_all_sons(quad *q){
 
 
 void quad_delete_all(quad *q){
-  if(q->children != nullptr){
+  if(q->has_children){
     quad_delete_all(q->children[0]);
     quad_delete_all(q->children[1]);
     quad_delete_all(q->children[2]);
     quad_delete_all(q->children[3]);
-    free(q->children);
+    delete[] q->children;
   }
 
-  free(q);  
+  //cout << "size: " << sizeof(q) << endl;
+  delete(q);
+  //delete(q->children);  
 }
 
 void grid_delete(grid *g){
@@ -130,6 +160,7 @@ struct sort_by_y
     }
 };
 
+
 void split_sides(vector<point> &half_p, double mid, vector<point> &l, vector<point> &r){
   vector<double> half;
   get_x(half, half_p);
@@ -153,16 +184,16 @@ void split_quad(grid *g, quad *q, bool keep_going){
 
   if(!keep_going){
     q->N = q->points.size();
-    g->result.push_back(q);
+    //g->result.push_back(q);
     //quad_print(q);
     return;
   }
 
   // Create the 4 quads
   q->has_children=true;
-  q->children = (quad **) malloc(sizeof(quad) * 4);
+  q->children = new(quad*[4]);
   for(int i=0; i<4;i++)
-    q->children[i] = (quad *) malloc(sizeof(quad));
+    q->children[i] = new(quad);
   
   point m, m_top, m_bot, m_left, m_right;
   point_create(&m, q->a.x + (q->b.x - q->a.x)/2.00, q->a.y + (q->b.y - q->a.y)/2.00);
@@ -204,17 +235,10 @@ void split_quad(grid *g, quad *q, bool keep_going){
   split_sides(top_half, m.x, q->children[2]->points, q->children[3]->points);
   split_sides(bot_half, m.x, q->children[0]->points, q->children[1]->points);
 
-  //cout << "size: " << bot_half_l.size() << endl; 
-
-  // Update structs
-  //q->children[0]->points = &bot_half_l;
-  //q->children[1]->points = &bot_half_r;
-  //q->children[2]->points = &top_half_l;
-  //q->children[3]->points = &top_half_r;
-
-  
-  //(*q->points).clear();
-  //q->points=nullptr;
+  // Update N:
+  for(int i=0; i<4; i++){
+    q->children[i]->N = q->children[i]->points.size();
+  }
 
   if(keep_going){
     if(q->children[0]->points.size() > limit)
@@ -237,11 +261,6 @@ void split_quad(grid *g, quad *q, bool keep_going){
   
 } 
 
-void print_csv(grid *g){
-
-  for(auto i : g->result)
-    quad_print(i);
-}
 void grid_refine(grid *g){
 
   if(g->q0->points.size() > limit)
@@ -250,54 +269,6 @@ void grid_refine(grid *g){
   //cout << "=================" << endl;
   //print_csv(g);
 }
-
-// [[Rcpp::export]]
-// NumericMatrix dynamic_grid(
-//                            unsigned long int max_N,
-//                            double xmin, double ymin, double xmax, double ymax,
-//                            NumericVector midpoints_x, NumericVector midpoints_y
-// ) {
-
-//   limit = max_N;
-//   point a, b;
-//   point_create(&a, (double) xmin, (double) ymin);
-//   point_create(&b, (double) xmax, (double) ymax);
-  
-//   quad master;
-//   quad_create(&master, a, b);
-
-//   grid g;
-//   g.q0=&master;
-
-//   vector<point> points;
-//   for(int i=0; i < midpoints_x.size(); i++){
-//     point p;
-//     point_create(&p, (double) midpoints_x[i], (double) midpoints_y[i]);
-//     points.push_back(p);
-//   }
-
-//   sort(points.begin(), points.end(), sort_by_y());
-//   master.points=&points;
-//   grid_refine(&g);
-//   //print_csv(&g);
-
-//   unsigned long int nrows = g.result.size();
-//   unsigned long int ncols = 5;
-    
-//   NumericMatrix df(nrows, ncols);
-//   for(int i = 0; i < nrows; i++){
-//     df[0 * nrows + i] = g.result[i]->a.x;
-//     df[1 * nrows + i] = g.result[i]->a.y;
-//     df[2 * nrows + i] = g.result[i]->b.x;
-//     df[3 * nrows + i] = g.result[i]->b.y;
-//     df[4 * nrows + i] = g.result[i]->N;
-//   }
-
-//   //df[0] = 1000;
-//   //df[1] = -1000;
-
-//   return(df);
-// }
 
 void walk_grid(quad *q, vector<quad*> &order){
 
@@ -312,7 +283,7 @@ void walk_grid(quad *q, vector<quad*> &order){
 }
 
 struct quad_queue {
-  quad * q;
+  quad *q;
   int nsons;
 };
 
@@ -327,7 +298,7 @@ void mount_quad_tree(grid *g, vector<quad*> quad_list){
 
     if(i->has_children){
       if(queue_fathers.size() == 0){
-        quad_queue *q = (quad_queue*) malloc(sizeof(quad_queue));
+        quad_queue *q = new(quad_queue);
         q->q=i; q->nsons=0;
         queue_fathers.push_back(q);
       }
@@ -336,94 +307,115 @@ void mount_quad_tree(grid *g, vector<quad*> quad_list){
         //q.nsons+=1;
 
         if(q->q->children == nullptr)
-          q->q->children = (quad**) malloc(sizeof(quad)*4);
+          q->q->children = new(quad*[4]);
 
         q->q->children[q->nsons] = i;
         q->nsons = q->nsons + 1;
 
-        quad_queue *q2 = (quad_queue*) malloc(sizeof(quad_queue));;
+        quad_queue *q2 = new(quad_queue);
         q2->nsons=0; q2->q=i;
         if(i->children == nullptr)
-          i->children = (quad**) malloc(sizeof(quad)*4);
+          i->children = new(quad*[4]);
         queue_fathers.push_back(q2);
         
       }
     } else {
 
       quad_queue *q = queue_fathers.back();
-      
+
+      if(q->q->children == nullptr)
+        q->q->children = new(quad*[4]);
+
       q->q->children[q->nsons] = i;
       q->nsons = q->nsons + 1;
 
       if(q->nsons == 4){
-        free(q);
         queue_fathers.pop_back();
+        delete(q);
       }
         
     }
-
-    //   else{
-    //     quad *father = queue_fathers.back();
-    //     if(father->children==nullptr){
-    //       father->children = (quad**) malloc(sizeof(quad)*4);
-    //     }
-    //     father->children[nsons.back()] = i;
-    //     nsons[nsons.size()-1] = nsons.back() + 1;
-
-    //     queue_fathers.push_back(i);
-    //     nsons.push_back(0);
-    //   }
-    // } else{
-     
-    //   quad *father = queue_fathers.back();
-    //   if(father->children==nullptr){
-    //     father->children = (quad**) malloc(sizeof(quad)*4);
-    //   }
-    //   father->children[nsons.back()] = i;
-    //   nsons[nsons.size()-1] = nsons.back() + 1;
-    // }
-      
   }
 
   g->q0 = quad_list[0];
 }
 
-bool grid_import_struct(grid *g){
+bool grid_import_struct(grid *g, const char *fname){
 
-  std::ifstream is("out.bin");
+  std::ifstream is(fname);
   cereal::BinaryInputArchive ar(is);
 
   vector<quad*> quad_list;
   
   bool next = true;
-  
+
+  quad *q;
   while(next){
     try{
-      quad *q = (quad*) malloc(sizeof(quad));
+      q = new(quad);
+      //q->points = vector<point>{};
+      //quad_cereal qc;
       ar(*q);
-      quad_print(q);
+      //quad_cereal_copy(q, qc);
+      //quad_print(q);
       q->children = nullptr;
       quad_list.push_back(q);
     } catch(cereal::Exception cerror){
       //cout << "Stop!" << endl;
-      next=false;      
+      next=false;
+      delete(q);
     }
   }
 
   if(quad_list.size() > 0) {
     mount_quad_tree(g, quad_list);
-    cout << "-----------------" << endl;
-    print_all_sons(g->q0);
+    //cout << "-----------------" << endl;
+    //print_all_sons(g->q0);
     
     return true;
   } else return(false);
 }
 
+// Copy the points from the quad-tree leaves
+// to the ones at the above sub-trees. You
+// should consider leave_points_at_leaves,
+// if you want to save memory ad disk space.
+void rebuild_points(quad *q){
+  if(q->children != nullptr){
+    q->points.clear();
+    for(int i=0; i<4; i++){
+      rebuild_points(q->children[i]);
+      q->points.insert(q->points.end(), q->children[i]->points.begin(), q->children[i]->points.end());
+    }
+    //remove(q->points);
+  }
+  q->N = q->points.size();
+}
 
-void grid_export_struct(grid *g){
+void leave_points_at_leaves(quad *q){
+  if(q->children != nullptr){
+    q->points.clear();
+    q->N = 0;
+    for(int i=0; i<4; i++){
+      leave_points_at_leaves(q->children[i]);
+      q->N = q->N + q->children[i]->N;
+    }
+  } else {
+    q->N = q->points.size();
+  }
+}
+
+void grid_export_struct(grid *g, const char *fname){
   // Write the data to the archive
-  std::ofstream file( "out.bin" );
+  std::ofstream file(fname);
   cereal::BinaryOutputArchive archive(file);
+
+  // Copy points from the leaves to the upper quads
+  //rebuild_points(g->q0);
+
+  // Leave points at the the leaves, just copy the
+  // number of points to the upper quads.
+  leave_points_at_leaves(g->q0);
 
   vector<quad*> grid_quads;
   walk_grid(g->q0, grid_quads);
@@ -436,56 +428,374 @@ void grid_export_struct(grid *g){
   
 }
 
-int main() {
-  point a, b;
-  point_create(&a, 0.00, 0.00);
-  point_create(&b, 10.00, 10.00);
-  
-  quad *master;
-  master = (quad *) malloc(sizeof(quad));
-  quad_create(master, a, b);
-
-  grid g;
-  g.q0=master;
-
-  point p[6];
-  point_create(&p[0], 1.0, 4.0);
-  point_create(&p[1], 2.0, 1.0);
-  point_create(&p[2], 4.0, 4.0);
-  point_create(&p[3], 3.0, 7.0);
-  point_create(&p[4], 7.0, 6.0);
-  point_create(&p[5], 6.0, 9.0);
-
-  //vector<point> points;
-  master->points.push_back(p[0]);
-  master->points.push_back(p[1]);
-  master->points.push_back(p[2]);
-  master->points.push_back(p[3]);
-  master->points.push_back(p[4]);
-  master->points.push_back(p[5]);
-
-  sort(master->points.begin(), master->points.end(), sort_by_y());
-
-  // quad_print(&master);
-  //point_print(p[0]);
-
-  grid_refine(&g);
-  //quad_delete_all(master);
-  grid_export_struct(&g);
-
-  
-  //  std::stringstream ss;
-  //  cereal::BinaryOutputArchive oarchive(ss); 
-  // archive(p[0]);
-  
-    
-  grid_delete(&g);
-  //print_csv(&g);
-
-  grid newg;
-  grid_import_struct(&newg);
-  grid_delete(&newg);
-  
-  return 0;
+void grid_export_txrx_points(grid *g, const char *fname){
+  std::ofstream file(fname);
+  cereal::BinaryOutputArchive archive(file);
+  archive(*g);
 }
 
+void grid_import_txrx_points(grid *g, const char *fname){
+  std::ifstream is(fname);
+  cereal::BinaryInputArchive ar(is);
+  ar(*g);
+}
+
+void create_common_grid(grid *A, grid *B, quad *qa, quad *qb){
+
+  //quad_print(qa);
+  //quad_print(qb);
+  //cout << "--------" << endl;
+  
+  if(qa->has_children && qb->has_children){
+    for(int i=0; i < 4; i++){
+      create_common_grid(A, B,
+                       qa->children[i],
+                       qb->children[i]);
+    }
+  }
+
+  else if(qa->has_children){
+    split_quad(B, qb, true);
+    create_common_grid(A, B,
+                     qa,
+                     qb);
+      
+  }
+
+  else if(qb->has_children){
+    split_quad(A, qa, true);
+    create_common_grid(A, B,
+                     qa,
+                     qb);
+
+  }
+
+
+      
+}
+
+void grid_get_leaves(quad *q, vector<quad*> &leaves){
+  
+  if(q->has_children==false){
+    leaves.push_back(q);
+  } else {
+    grid_get_leaves(q->children[0], leaves);
+    grid_get_leaves(q->children[1], leaves);
+    grid_get_leaves(q->children[2], leaves);
+    grid_get_leaves(q->children[3], leaves);
+  }
+  
+}
+
+// As pointed by MultiRRomero at:
+// https://stackoverflow.com/questions/5254838/calculating-distance-between-a-point-and-a-rectangular-box-nearest-point
+double quad_dist_to_point(quad *q, point *p){
+  vector<double> dx = {q->a.x - p->x, 0, p->x - q->b.x};
+  vector<double> dy = {q->a.y - p->y, 0, p->y - q->b.y};
+
+  double max_dx = *max_element(begin(dx), end(dx)); 
+  double max_dy = *max_element(begin(dy), end(dy));
+  
+  return(sqrt(max_dx * max_dx + max_dy * max_dy));
+
+}
+
+void find_composed_N(grid *A, grid *B, quad *qa, quad *qb, quad *qc){
+  //quad_print(qa);
+  //quad_print(qb);
+  //cout << endl;
+
+  vector<double> A_dist, B_dist;
+  //  quad_dist_to_point(A->txrx, )
+  for(auto point_a : A->txrx){
+    A_dist.push_back(quad_dist_to_point(qa, &point_a));
+  }
+
+  for(auto point_b : B->txrx){
+    B_dist.push_back(quad_dist_to_point(qb, &point_b));
+  }
+
+  double min_a = *min_element(begin(A_dist), end(A_dist));
+  double min_b = *min_element(begin(B_dist), end(B_dist));
+
+  if(min_a < min_b){
+    qc->points = vector<point>{qa->points};
+    qc->N = qa->points.size();
+  }
+  else if(min_a > min_b) {
+    qc->points = vector<point>{qb->points};
+    qc->N = qb->points.size();
+  }
+  else if(min_a == min_b){
+    // A is more refined 
+    if(qa->points.size() >= qb->points.size()){
+      qc->points = vector<point>{qa->points};
+      qc->N = qa->points.size();
+    }
+    // B is more refined 
+    else{
+      qc->points = vector<point>{qb->points};
+      qc->N = qb->points.size();
+    }
+  }
+}
+
+void copy_quad(quad *src, quad* dest){
+  dest->has_children = src->has_children;
+  dest->points = vector<point> {src->points};
+  dest->N = src->points.size();
+  dest->a = src->a;
+  dest->b = src->b;
+  if(src->children != nullptr){
+    dest->children = new(quad*[4]);
+    for(int i = 0; i < 4; i++){
+      dest->children[i] = new(quad);
+      copy_quad(src->children[i], dest->children[i]);
+    }
+    
+  }
+}
+
+void copy_grid(grid *src, grid *dest){
+  quad *d0 = new(quad);
+  dest->q0 = d0;
+  copy_quad(src->q0, dest->q0);
+}
+
+void remove(std::vector<point> &v)
+{
+    auto end = v.end();
+    for (auto it = v.begin(); it != end; ++it) {
+      end = std::remove(it + 1, end, *it);
+    }
+ 
+    v.erase(end, v.end());
+}
+
+void grid_compose(grid *A, grid *B, grid *C){
+
+  quad *qa = A->q0;
+  quad *qb = B->q0;
+
+  vector<quad*> A_leaves, B_leaves, C_leaves;
+
+  create_common_grid(A, B, qa, qb);
+  copy_grid(A, C);
+  quad *qc = C->q0;
+  
+  grid_get_leaves(qa, A_leaves);
+  grid_get_leaves(qb, B_leaves);
+  grid_get_leaves(qc, C_leaves);
+
+  for(auto i=0; i < C_leaves.size(); i++){
+    find_composed_N(A, B, A_leaves[i], B_leaves[i], C_leaves[i]);
+  }
+
+  // Copy txrx points from A and B to C
+  for(auto i : A->txrx){
+    C->txrx.push_back(i);
+  }
+  for(auto i : B->txrx){
+    C->txrx.push_back(i);
+  }
+  // Remove duplicates
+  remove(C->txrx);
+
+}
+
+// int main() {
+
+//   // quad *q = new(quad);
+//   // point a;
+//   // point_create(&a, 0.0, 0.0);
+//   // q->points = vector<point>{};
+//   // q->points.push_back(a);
+//   // delete(q);
+  
+//   grid *a = new(grid);
+//   grid *b = new(grid);
+//   grid *c = new(grid);
+
+//   point txrx[4];
+//   point_create(&txrx[0], 4.0, 4.5);
+//   point_create(&txrx[1], 6.0, 3.0);
+//   point_create(&txrx[2], 4.0, 4.5);
+//   point_create(&txrx[3], 8.0, 3.0);
+
+//   a->txrx.push_back(txrx[0]);
+//   a->txrx.push_back(txrx[1]);
+//   b->txrx.push_back(txrx[2]);
+//   b->txrx.push_back(txrx[3]);
+  
+//   grid_import_struct(a, "a.dgrid");
+//   //grid_import_txrx_points(a, "a.txrx");
+  
+//   grid_import_struct(b, "b.dgrid");
+//   //  grid_import_txrx_points(b, "b.txrx");
+
+//   grid_compose(b, a, c);
+
+//   print_all_sons(c->q0);
+//   vector<quad*> leaves;
+//   grid_get_leaves(c->q0, leaves);
+//   for(auto i : leaves){
+//     for(auto j : i->points)
+//       cout << point_str(&j) << endl;
+//   }
+  
+//   // print_all_sons(b->q0);
+//   // for(auto i : b->q0->points){
+//   //    cout << point_str(&i) << endl;
+//   // }
+  
+//   grid_delete(a);
+//   delete(a);
+//   grid_delete(b);
+//   delete(b);
+//   grid_delete(c);
+//   delete(c);
+  
+  
+//   return 0;
+// }
+
+
+// [[Rcpp::export]]
+void dgrid_create(unsigned long int max_N,
+                  double xmin, double ymin, double xmax, double ymax,
+                  NumericVector txrx_x, NumericVector txrx_y,
+                  NumericVector midpoints_x, NumericVector midpoints_y,
+                  String fname){
+
+  limit = max_N;
+  point a, b;
+  point_create(&a, (double) xmin, (double) ymin);
+  point_create(&b, (double) xmax, (double) ymax);
+  
+  quad *master = new(quad);
+  quad_create(master, a, b);
+
+  grid *g = new(grid);
+  g->q0=master;
+
+  for(int i=0; i < txrx_x.size(); i++){
+    point p;
+    point_create(&p, (double) txrx_x[i], (double) txrx_y[i]);
+    g->txrx.push_back(p);
+  }
+  
+  for(int i=0; i < midpoints_x.size(); i++){
+    point p;
+    point_create(&p, (double) midpoints_x[i], (double) midpoints_y[i]);
+    master->points.push_back(p);
+  }
+
+  sort(master->points.begin(), master->points.end(), sort_by_y());
+  grid_refine(g);
+
+  fname.replace_last("$", ".rdgrid");
+  grid_export_struct(g, fname.get_cstring());
+  fname.replace_last("$", ".txrx");
+  grid_export_txrx_points(g, fname.get_cstring());
+  //cout << fpath.get_cstring() << fname.get_cstring() << endl; 
+  //print_csv(&g);
+
+  grid_delete(g);
+  delete(g);
+}
+
+// [[Rcpp::export]]
+void dgrid_compose(String Afname, String Bfname, String composed){
+  grid *A = new(grid);
+  grid *B = new(grid);
+  grid *C = new(grid);
+
+  Afname.replace_last("$", ".rdgrid");
+  grid_import_struct(A, Afname.get_cstring());
+  Afname.replace_last("$", ".txrx");
+  grid_import_txrx_points(A, Afname.get_cstring());
+
+  Bfname.replace_last("$", ".rdgrid");
+  grid_import_struct(B, Bfname.get_cstring());
+  Bfname.replace_last("$", ".txrx");
+  grid_import_txrx_points(B, Bfname.get_cstring());
+
+  grid_compose(A, B, C);
+
+  composed.replace_last("$", ".rdgrid");
+  grid_export_struct(C, composed.get_cstring());
+  composed.replace_last("$", ".txrx");
+  grid_export_txrx_points(C, composed.get_cstring());
+  
+  grid_delete(A); grid_delete(B);
+  grid_delete(C);
+  delete(A); delete(B), delete(C);
+}
+
+// [[Rcpp::export]]
+NumericMatrix dgrid2table(String fname){
+  
+  grid *g = new(grid);
+  fname.replace_last("$", ".rdgrid");
+  grid_import_struct(g, fname.get_cstring());
+  fname.replace_last("$", ".txrx");
+  grid_import_txrx_points(g, fname.get_cstring());
+
+  vector<quad*> leaves;
+  grid_get_leaves(g->q0, leaves);
+
+  vector<point> points;
+  for(auto i : leaves){
+    for(auto j : i->points)
+      points.push_back(j);
+  }
+
+  unsigned long int nrows = leaves.size() + points.size() + g->txrx.size();
+  unsigned long int ncols = 6;
+  NumericMatrix df(nrows, ncols);
+  // Copy leaves quads
+  for(int i = 0; i < leaves.size(); i++){
+    df[0 * nrows + i] = leaves[i]->a.x;
+    df[1 * nrows + i] = leaves[i]->a.y;
+    df[2 * nrows + i] = leaves[i]->b.x;
+    df[3 * nrows + i] = leaves[i]->b.y;
+    df[4 * nrows + i] = leaves[i]->N;
+    df[5 * nrows + i] = 0.0;
+  }
+
+  // Copy leaves points
+  for(int i = leaves.size(); i < leaves.size() + points.size(); i++){
+    df[0 * nrows + i] = points[i - leaves.size()].x;
+    df[1 * nrows + i] = points[i - leaves.size()].y;
+    df[2 * nrows + i] = 0.0;
+    df[3 * nrows + i] = 0.0;
+    df[4 * nrows + i] = 0.0;
+    df[5 * nrows + i] = 1.0;
+  }
+
+  // Copy rxtx points
+  for(int i = leaves.size() + points.size(); i < nrows; i++){
+    df[0 * nrows + i] = g->txrx[i - leaves.size() - points.size()].x;
+    df[1 * nrows + i] = g->txrx[i - leaves.size() - points.size()].y;
+    df[2 * nrows + i] = 0.0;
+    df[3 * nrows + i] = 0.0;
+    df[4 * nrows + i] = 0.0;
+    df[5 * nrows + i] = 2.0;
+  }
+
+  colnames(df) = CharacterVector::create("xmin", "ymin", "xmax", "ymax", "N", "type");
+
+  //print_all_sons(g->q0);
+  grid_delete(g);
+  delete(g);
+  return(df);
+ 
+}
+
+// [[Rcpp::export]]
+unsigned long int dgrid_depth(String fname){
+  grid *g = new(grid);
+  fname.replace_last("$", ".rdgrid");
+  grid_import_struct(g, fname.get_cstring());
+  return(g->q0->N);
+}

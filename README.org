@@ -10,3 +10,7 @@ You can specify the max number of triangles per grid rectangle and rdgrid will c
 [[https://uscilab.github.io/cereal/][Cereal lib for serialization]]
 
 [[https://www.rcpp.org/][Rcpp: R and C++ integration]]
+
+** Examples 
+
+See the [[example][example]] for further deitails on how to use rdgrid. 
