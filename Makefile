@@ -1,4 +1,4 @@
 all:
-	g++ rdgrid.cpp -g -I./ -o rdgrid
+	g++ rdgrid.cpp -g -DNORCPP -I./ -o rdgrid
 clean:
 	rm rdgrid out.*

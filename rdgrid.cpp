@@ -7,10 +7,13 @@
 #include <cmath>
 #include<cereal/archives/binary.hpp>
 #include <cereal/types/vector.hpp>
+#include <sys/stat.h>
+#include <cstring>
 
-
+#ifndef NORCPP
 #include <Rcpp.h>
 using namespace Rcpp;
+#endif
 
 unsigned int limit = 1;
 using namespace std;
@@ -274,11 +277,14 @@ void walk_grid(quad *q, vector<quad*> &order){
 
   order.push_back(q);
   if(q->children != nullptr){
+    q->has_children = true;
     walk_grid(q->children[0], order);
     walk_grid(q->children[1], order);
     walk_grid(q->children[2], order);
     walk_grid(q->children[3], order);
-  } 
+  } else {
+    q->has_children = false;
+  }
   
 }
 
@@ -292,6 +298,10 @@ void mount_quad_tree(grid *g, vector<quad*> quad_list){
   
   for(auto i : quad_list){
 
+    if(i==nullptr){
+      cout << "MAYBE A BAD ALLOC - RUN!" << endl;
+      exit(1);
+    }
     // for(auto j : queue_fathers){
     //   cout << "queue: "; quad_print(j->q);
     // }
@@ -311,6 +321,11 @@ void mount_quad_tree(grid *g, vector<quad*> quad_list){
 
         q->q->children[q->nsons] = i;
         q->nsons = q->nsons + 1;
+
+        if(q->nsons == 4){
+          queue_fathers.pop_back();
+          delete(q);
+        }
 
         quad_queue *q2 = new(quad_queue);
         q2->nsons=0; q2->q=i;
@@ -352,7 +367,12 @@ bool grid_import_struct(grid *g, const char *fname){
   quad *q;
   while(next){
     try{
-      q = new(quad);
+      try{
+        q = new(quad);
+      } catch (std::bad_alloc&) {
+        // Handle error
+        cout << "BAD ALLOC -------- RUUUUUNNN" << endl;
+      }
       //q->points = vector<point>{};
       //quad_cereal qc;
       ar(*q);
@@ -364,9 +384,14 @@ bool grid_import_struct(grid *g, const char *fname){
       //cout << "Stop!" << endl;
       next=false;
       delete(q);
+      is.close();
     }
   }
 
+  //for(auto i : quad_list){
+  //  quad_print(i);
+  //}
+  
   if(quad_list.size() > 0) {
     mount_quad_tree(g, quad_list);
     //cout << "-----------------" << endl;
@@ -424,7 +449,7 @@ void grid_export_struct(grid *g, const char *fname){
     archive(*i);
       // quad_print(i);
   //  archive(*i);
-  
+  file.close();
   
 }
 
@@ -432,12 +457,14 @@ void grid_export_txrx_points(grid *g, const char *fname){
   std::ofstream file(fname);
   cereal::BinaryOutputArchive archive(file);
   archive(*g);
+  file.close();
 }
 
 void grid_import_txrx_points(grid *g, const char *fname){
   std::ifstream is(fname);
   cereal::BinaryInputArchive ar(is);
   ar(*g);
+  is.close();
 }
 
 void create_common_grid(grid *A, grid *B, quad *qa, quad *qb){
@@ -475,16 +502,21 @@ void create_common_grid(grid *A, grid *B, quad *qa, quad *qb){
 }
 
 void grid_get_leaves(quad *q, vector<quad*> &leaves){
-  
-  if(q->has_children==false){
-    leaves.push_back(q);
-  } else {
-    grid_get_leaves(q->children[0], leaves);
-    grid_get_leaves(q->children[1], leaves);
-    grid_get_leaves(q->children[2], leaves);
-    grid_get_leaves(q->children[3], leaves);
+
+  if(q!=nullptr){
+    if(q->children==nullptr){
+      leaves.push_back(q);
+    } else {
+      grid_get_leaves(q->children[0], leaves);
+      grid_get_leaves(q->children[1], leaves);
+      grid_get_leaves(q->children[2], leaves);
+      grid_get_leaves(q->children[3], leaves);
+    }
+
+  } else{ 
+    cout << "Quad not allocated" << endl;
+    exit(1);
   }
-  
 }
 
 // As pointed by MultiRRomero at:
@@ -518,26 +550,36 @@ void find_composed_N(grid *A, grid *B, quad *qa, quad *qb, quad *qc){
   double min_a = *min_element(begin(A_dist), end(A_dist));
   double min_b = *min_element(begin(B_dist), end(B_dist));
 
-  if(min_a < min_b){
+  if(qa->points.size() >= qb->points.size()){
     qc->points = vector<point>{qa->points};
     qc->N = qa->points.size();
   }
-  else if(min_a > min_b) {
+  // B is more refined 
+  else{
     qc->points = vector<point>{qb->points};
     qc->N = qb->points.size();
   }
-  else if(min_a == min_b){
-    // A is more refined 
-    if(qa->points.size() >= qb->points.size()){
-      qc->points = vector<point>{qa->points};
-      qc->N = qa->points.size();
-    }
-    // B is more refined 
-    else{
-      qc->points = vector<point>{qb->points};
-      qc->N = qb->points.size();
-    }
-  }
+
+  // if(min_a < min_b){
+  //   qc->points = vector<point>{qa->points};
+  //   qc->N = qa->points.size();
+  // }
+  // else if(min_a > min_b) {
+  //   qc->points = vector<point>{qb->points};
+  //   qc->N = qb->points.size();
+  // }
+  // else if(min_a == min_b){
+  //   // A is more refined 
+  //   if(qa->points.size() >= qb->points.size()){
+  //     qc->points = vector<point>{qa->points};
+  //     qc->N = qa->points.size();
+  //   }
+  //   // B is more refined 
+  //   else{
+  //     qc->points = vector<point>{qb->points};
+  //     qc->N = qb->points.size();
+  //   }
+  // }
 }
 
 void copy_quad(quad *src, quad* dest){
@@ -659,7 +701,7 @@ void grid_compose(grid *A, grid *B, grid *C){
 //   return 0;
 // }
 
-
+#ifndef NORCPP
 // [[Rcpp::export]]
 void dgrid_create(unsigned long int max_N,
                   double xmin, double ymin, double xmax, double ymax,
@@ -693,6 +735,9 @@ void dgrid_create(unsigned long int max_N,
   sort(master->points.begin(), master->points.end(), sort_by_y());
   grid_refine(g);
 
+  leave_points_at_leaves(g->q0);
+  //print_all_sons(g->q0);
+  
   fname.replace_last("$", ".rdgrid");
   grid_export_struct(g, fname.get_cstring());
   fname.replace_last("$", ".txrx");
@@ -741,6 +786,8 @@ NumericMatrix dgrid2table(String fname){
   fname.replace_last("$", ".txrx");
   grid_import_txrx_points(g, fname.get_cstring());
 
+  //print_all_sons(g->q0);
+  
   vector<quad*> leaves;
   grid_get_leaves(g->q0, leaves);
 
@@ -797,5 +844,109 @@ unsigned long int dgrid_depth(String fname){
   grid *g = new(grid);
   fname.replace_last("$", ".rdgrid");
   grid_import_struct(g, fname.get_cstring());
-  return(g->q0->N);
+  unsigned long int depth = g->q0->N;
+  grid_delete(g);
+  delete(g);
+  return(depth);
 }
+#endif
+
+#ifdef NORCPP
+
+void dgrid_compose(char* Afname, char* Bfname, char* composed){
+  grid *A = new(grid);
+  grid *B = new(grid);
+  grid *C = new(grid);
+
+  vector<string> fnames;
+  fnames.push_back(string{Afname} + ".rdgrid");
+  fnames.push_back(string{Afname} + ".rdgrid.txrx");
+  fnames.push_back(string{Bfname} + ".rdgrid");
+  fnames.push_back(string{Bfname} + ".rdgrid.txrx");
+  fnames.push_back(string{composed} + ".rdgrid");
+  fnames.push_back(string{composed} + ".rdgrid.txrx");
+
+  grid_import_struct(A, fnames[0].c_str());
+  grid_import_txrx_points(A, fnames[1].c_str());
+
+  grid_import_struct(B, fnames[2].c_str());
+  grid_import_txrx_points(B, fnames[3].c_str());
+
+  grid_compose(A, B, C);
+
+  grid_export_struct(C, fnames[4].c_str());
+  grid_export_txrx_points(C, fnames[5].c_str());
+  
+  grid_delete(A); grid_delete(B);
+  grid_delete(C);
+  delete(A); delete(B), delete(C);
+}
+
+unsigned long int dgrid_depth(char* fname){
+  grid *g = new(grid);
+  string sfname = string{fname};
+  sfname = sfname + ".rdgrid";
+  grid_import_struct(g, sfname.c_str());
+  unsigned long int depth = g->q0->N;
+  grid_delete(g);
+  delete(g);
+  return(depth);
+}
+
+int main(int argc, char* argv[]){
+
+  //dgrid_depth
+  //dgrid_compose
+  // Check the number of parameters
+  if (argc < 3 || argc > 6) {
+    std::cerr << "Usage: " << endl;
+    std::cerr << "\tCompose: " << argv[0] << " -c gridA gridB out" << std::endl;
+    std::cerr << "\tGet depth: " << argv[0] << " -d grid" << std::endl;
+    return 1;
+  }
+
+  if (argc == 3) {
+    if(strcmp(argv[1], "-d") == 0){
+      struct stat buffer;
+      vector<string> in_files;
+      in_files.push_back(string(argv[2]) + ".rdgrid");
+      for(auto f : in_files){
+        if(!stat(f.c_str(), &buffer) == 0){
+          cerr << "File not found: " << f << endl;
+          return 1;
+        }
+      }
+      cout << dgrid_depth(argv[2]) << endl;
+      
+      
+    }
+    else{
+      cerr << "Option not known: " << argv[1] << endl;
+    }
+  }
+
+  if (argc == 5) {
+    if(strcmp(argv[1], "-c") == 0){
+      struct stat buffer;
+      vector<string> in_files;
+      in_files.push_back(string(argv[2]) + ".rdgrid");
+      in_files.push_back(string(argv[2]) + ".rdgrid.txrx");
+      in_files.push_back(string(argv[3]) + ".rdgrid");
+      in_files.push_back(string(argv[3]) + ".rdgrid.txrx");
+
+      for(auto f : in_files){
+        if(!stat(f.c_str(), &buffer) == 0){
+          cerr << "File not found: " << f << endl;
+          return 1;
+        }
+      }
+      dgrid_compose(argv[2], argv[3], argv[4]);
+      
+    }
+    else{
+      cerr << "Option not known: " << argv[1] << endl;
+    }
+  }
+  return 0;
+}
+#endif

@@ -100,7 +100,9 @@ dgrid_create(
 * Compose grids 
 ** Call dgrid_compose
 #+begin_src R :results output :exports both :session *R-local*
-dgrid_compose("./A", "./B", "./composed")
+#dgrid_compose("./A", "./B", "./composed")
+
+dgrid_compose("./A", "./B", "./A")
 #+end_src
 
 #+RESULTS:
