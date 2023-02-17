@@ -182,6 +182,61 @@ void split_sides(vector<point> &half_p, double mid, vector<point> &l, vector<poi
   sort(r.begin(), r.end(), sort_by_y());
 }
 
+// Split the given q in 4 - once
+void split_quad_once(grid *g, quad *q){
+
+  // Create the 4 quads
+  q->has_children=true;
+  q->children = new(quad*[4]);
+  for(int i=0; i<4;i++)
+    q->children[i] = new(quad);
+  
+  point m, m_top, m_bot, m_left, m_right;
+  point_create(&m, q->a.x + (q->b.x - q->a.x)/2.00, q->a.y + (q->b.y - q->a.y)/2.00);
+  point_create(&m_top, m.x, q->b.y);
+  point_create(&m_bot, m.x, q->a.y);
+  point_create(&m_left, q->a.x, m.y);
+  point_create(&m_right, q->b.x, m.y);
+
+  quad_create(q->children[2], m_left, m_top);
+  quad_create(q->children[3], m, q->b);
+  quad_create(q->children[0], q->a, m);
+  quad_create(q->children[1], m_bot, m_right);
+  
+  vector<double> y_values;
+  vector<point> copy;
+  for(auto i : q->points)
+    copy.push_back(i);
+  
+  get_y(y_values, q->points);
+  //for(auto i : y_values)
+  //  cout << i << endl;
+  auto ybound = lower_bound(y_values.begin(), y_values.end(), m.y,
+            [](const double& test, double value)
+            {
+                return test <= value;
+            });
+  int ybound_int = ybound - y_values.begin();
+  int points_size = q->points.size();
+
+  vector<point> bot_half = {&(q->points)[0], &(q->points)[ybound_int]};
+  sort(bot_half.begin(), bot_half.end(), sort_by_x());
+  vector<point> top_half = {&(q->points)[ybound_int], &(q->points)[points_size]};
+  sort(top_half.begin(), top_half.end(), sort_by_x());
+
+  //  for(auto i:top_half)
+  //  cout << "\t" << point_str(&i) << endl;
+  
+  //vector<point> top_half_l, top_half_r, bot_half_l, bot_half_r;
+  split_sides(top_half, m.x, q->children[2]->points, q->children[3]->points);
+  split_sides(bot_half, m.x, q->children[0]->points, q->children[1]->points);
+
+  // Update N:
+  for(int i=0; i<4; i++){
+    q->children[i]->N = q->children[i]->points.size();
+  }  
+}
+
 // Split the given q in 4 
 void split_quad(grid *g, quad *q, bool keep_going){
 
@@ -482,7 +537,7 @@ void create_common_grid(grid *A, grid *B, quad *qa, quad *qb){
   }
 
   else if(qa->has_children){
-    split_quad(B, qb, true);
+    split_quad_once(B, qb);
     create_common_grid(A, B,
                      qa,
                      qb);
@@ -490,7 +545,7 @@ void create_common_grid(grid *A, grid *B, quad *qa, quad *qb){
   }
 
   else if(qb->has_children){
-    split_quad(A, qa, true);
+    split_quad_once(A, qa);
     create_common_grid(A, B,
                      qa,
                      qb);
