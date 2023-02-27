@@ -938,13 +938,38 @@ void dgrid_compose(char* Afname, char* Bfname, char* composed){
 }
 
 unsigned long int dgrid_depth(char* fname){
-  grid *g = new(grid);
   string sfname = string{fname};
   sfname = sfname + ".rdgrid";
-  grid_import_struct(g, sfname.c_str());
-  unsigned long int depth = g->q0->N;
-  grid_delete(g);
-  delete(g);
+
+  //grid_import_struct(g, sfname.c_str());
+
+  std::ifstream is(sfname.c_str());
+  cereal::BinaryInputArchive ar(is);
+
+  bool next = true;
+  quad *q;
+    try{
+      try{
+        q = new(quad);
+      } catch (std::bad_alloc&) {
+        // Handle error
+        cout << "BAD ALLOC -------- RUUUUUNNN" << endl;
+      }
+      //q->points = vector<point>{};
+      //quad_cereal qc;
+      ar(*q);
+      //quad_cereal_copy(q, qc);
+      //quad_print(q);
+      q->children = nullptr;
+    } catch(cereal::Exception cerror){
+      //cout << "Stop!" << endl;
+      next=false;
+      delete(q);
+      is.close();
+    }
+  
+  unsigned long int depth = q->N;
+  delete(q);
   return(depth);
 }
 
