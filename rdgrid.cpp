@@ -1050,7 +1050,10 @@ int main(int argc, char* argv[]){
       }
       dgrid_compose(argv[2], argv[3], argv[4]);
       for(int i = 0; i<4; i++){
-        remove_file(in_files[i]);
+        string sub = "04Tx013";
+        if (in_files[i].find(sub) == std::string::npos) {
+          remove_file(in_files[i]);  
+        }
       }
       
       
