@@ -9,6 +9,7 @@
 #include <cereal/types/vector.hpp>
 #include <sys/stat.h>
 #include <cstring>
+#include <stdio.h>
 
 #ifndef NORCPP
 #include <Rcpp.h>
@@ -973,6 +974,16 @@ unsigned long int dgrid_depth(char* fname){
   return(depth);
 }
 
+void remove_file(string fname){
+
+  int status = remove(fname.c_str());
+  if(status!=0){
+    cerr << "Cannot remove", fname ,". Error Occurred!";
+    exit(1);
+  }
+
+}
+
 int main(int argc, char* argv[]){
 
   //dgrid_depth
@@ -1023,10 +1034,32 @@ int main(int argc, char* argv[]){
       dgrid_compose(argv[2], argv[3], argv[4]);
       
     }
+    else if(strcmp(argv[1], "-cr") == 0){
+      struct stat buffer;
+      vector<string> in_files;
+      in_files.push_back(string(argv[2]) + ".rdgrid");
+      in_files.push_back(string(argv[2]) + ".rdgrid.txrx");
+      in_files.push_back(string(argv[3]) + ".rdgrid");
+      in_files.push_back(string(argv[3]) + ".rdgrid.txrx");
+
+      for(auto f : in_files){
+        if(!stat(f.c_str(), &buffer) == 0){
+          cerr << "File not found: " << f << endl;
+          return 1;
+        }
+      }
+      dgrid_compose(argv[2], argv[3], argv[4]);
+      for(int i = 0; i<4; i++){
+        remove_file(in_files[i]);
+      }
+      
+      
+    }
     else{
       cerr << "Option not known: " << argv[1] << endl;
     }
   }
+
   return 0;
 }
 #endif
